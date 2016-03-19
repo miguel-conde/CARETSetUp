@@ -1,0 +1,442 @@
+---
+title: "CARET General Setup"
+author: "Miguel Conde"
+date: "18 de marzo de 2016"
+output: html_document
+---
+
+```{r me, echo = FALSE, warning=FALSE}
+library(knitr)
+opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+# Load `caret` and allow Parallel Processing
+```{r CARET_AND_PARALLEL}
+library(caret)
+
+library(doParallel)
+cl <- makeCluster(max(detectCores()-1,1))
+registerDoParallel(cl)
+```
+
+## MAIN FUNCTIONS FOR SETUP
+
+### trainControl()
+
+```
+# method	
+The resampling method: boot, boot632, cv, repeatedcv, LOOCV, LGOCV (for
+repeated training/test splits), none (only fits one model to the entire
+training set), oob (only for random forest, bagged trees, bagged earth, 
+bagged flexible discriminant analysis, or conditional tree forest models),
+"adaptive_cv", "adaptive_boot" or "adaptive_LGOCV"
+
+# number	
+Either the number of folds or number of resampling iterations
+
+# repeats	
+For repeated k-fold cross-validation only: the number of complete sets of folds to compute
+
+# search	
+Either "grid" or "random", describing how the tuning parameter grid is
+determined
+
+# classProbs	
+a logical; should class probabilities be computed for classification models (along with predicted values) in each resample? 
+
+# summaryFunction	
+a function to compute performance metrics across resamples. The arguments to the function should be the same as those in defaultSummary. 
+
+# selectionFunction	
+the function used to select the optimal tuning parameter. This can be a name of the function or the function itself. See best for details and other options.
+
+# preProcOptions	
+A list of options to pass to preProcess. The type of pre-processing (e.g. center, scaling etc) is passed in via the preProc option in train.
+
+# sampling	
+a single character value describing the type of additional sampling that is conducted after resampling (usually to resolve class imbalances). Values are "none", "down", "up", "smote", or "rose". The latter two values require the DMwR and ROSE packages, respectively. This argument can also be a list to facilitate custom sampling and these details can be found on the caret package website for sampling (link below).
+```
+
+```
+trainControl(method            = "boot",
+             number            = ifelse(grepl("cv", method), 10, 25),
+             repeats           = ifelse(grepl("cv", method), 1, number),
+             p                 = 0.75,
+             search            = "grid",
+             verboseIter       = FALSE,
+             classProbs        = FALSE,
+             summaryFunction   = defaultSummary,
+             selectionFunction = "best",
+             seeds             = NA,
+             allowParallel     = TRUE)
+```
+
+### train()
+```
+# x	
+an object where samples are in rows and features are in columns. This could be a simple matrix, data frame or other type (e.g. sparse matrix). See Details below.
+
+# y	
+a numeric or factor vector containing the outcome for each sample.
+
+# form	
+A formula of the form y ~ x1 + x2 + ...
+
+# data	
+Data frame from which variables specified in formula are preferentially to be taken.
+
+# ...	
+arguments passed to the classification or regression routine (such as randomForest). Errors will occur if values for tuning parameters are passed here.
+
+# ---------------------------------- #
+# weights	
+a numeric vector of case weights. This argument will only affect models that allow case weights.
+
+# subset	
+An index vector specifying the cases to be used in the training sample. (NOTE: If given, this argument must be named.)
+
+# na.action	
+A function to specify the action to be taken if NAs are found. The default action is for the procedure to fail. An alternative is na.omit, which leads to rejection of cases with missing values on any required variable. (NOTE: If given, this argument must be named.)
+
+# contrasts	
+a list of contrasts to be used for some or all the factors appearing as variables in the model formula.
+# ---------------------------------- #
+
+# method	
+a string specifying which classification or regression model to use. Possible values are found using names(getModelInfo()). See http://topepo.github.io/caret/bytag.html. A list of functions can also be passed for a custom model function. See http://topepo.github.io/caret/custom_models.html for details.
+
+# preProcess	
+a string vector that defines a pre-processing of the predictor data. Current possibilities are "BoxCox", "YeoJohnson", "expoTrans", "center", "scale", "range", "knnImpute", "bagImpute", "medianImpute", "pca", "ica" and "spatialSign". The default is no pre-processing. See preProcess and trainControl on the procedures and how to adjust them. Pre-processing code is only designed to work when x is a simple matrix or data frame.
+
+# metric	
+a string that specifies what summary metric will be used to select the optimal model. By default, possible values are "RMSE" and "Rsquared" for regression and "Accuracy" and "Kappa" for classification. If custom performance metrics are used (via the summaryFunction argument in trainControl, the value of metric should match one of the arguments. If it does not, a warning is issued and the first metric given by the summaryFunction is used. (NOTE: If given, this argument must be named.)
+
+# maximize	
+a logical: should the metric be maximized or minimized?
+
+# trControl	
+a list of values that define how this function acts. See trainControl and http://topepo.github.io/caret/training.html#custom. (NOTE: If given, this argument must be named.)
+
+# tuneGrid	
+a data frame with possible tuning values. The columns are named the same as the tuning parameters. Use getModelInfo to get a list of tuning parameters for each model or see http://topepo.github.io/caret/modelList.html. (NOTE: If given, this argument must be named.)
+
+# tuneLength	
+an integer denoting the amount of granularity in the tuning parameter grid. By default, this argument is the number of levels for each tuning parameters that should be generated by train. If trainControl has the option search = "random", this is the maximum number of tuning parameter combinations that will be generated by the random search. (NOTE: If given, this argument must be named.)
+```
+
+```
+## Default S3 method:
+train(x, y, 
+      method     = "rf",  
+      preProcess = NULL,
+      ..., 
+      weights    = NULL,
+      metric     = ifelse(is.factor(y), "Accuracy", "RMSE"),   
+      maximize   = ifelse(metric %in% c("RMSE", "logLoss"), FALSE, TRUE),
+      trControl  = trainControl(), 
+      tuneGrid   = NULL, 
+      tuneLength = 3)
+
+## S3 method for class 'formula'
+train(form, data, ..., weights, subset, na.action, contrasts = NULL)
+```
+
+### Model parameters space
+`tuneLength` and `tuneGrid` are two **mutually exclusive** `train()` arguments.
+
+This can be so easy as:
+```{r TUNELENGTH_TUNEGRID}
+data.frame(gamma = (0:4)/4, lambda = 3/4)
+```
+
+Or you can use `expand.grid()`:
+```{r TUNELENGTH_TUNEGRID_2}
+expand.grid(gamma = (0:4)/4, lambda = 3/4)
+
+head(
+expand.grid(.interaction.depth = seq(1, 7, by = 2),
+            .n.trees = seq(100, 1000, by = 50),
+            .shrinkage = c(0.01, 0.1))
+)
+```
+
+## USEFUL FUNCTIONS FOR SETUP
+```{r MODEL_LOOKUP}
+head(modelLookup())
+
+```
+
+```{r GET_MODEL_INFO}
+getModelInfo("rf", regex = FALSE)
+```
+
+
+## EXAMPLES
+
+Loading data
+
+```{r LOAD_DATA}
+library(C50)
+data(churn)
+churn <- rbind(churnTrain, churnTest)
+
+str(churn)
+```
+
+Creating dummy vars (for xgboost)
+```{r DUMMY_VARS}
+dummies <- dummyVars(churn ~ ., data = churn)
+newChurn <- as.data.frame(predict(dummies, newdata = churn))
+
+cols_no <- grep(".*no", names(newChurn))
+newChurn <- newChurn[, setdiff(1:ncol(newChurn), cols_no)]
+
+```
+
+
+### RANGER & XGBOOST
+```{r TRAIN_AND_TEST_SETS}
+set.seed(1234)
+trainingIdx <- createDataPartition(churn$churn, list = FALSE)
+
+trainPred <- newChurn[trainingIdx, ]
+trainClass <- churn[trainingIdx, "churn"]
+
+testPred <- newChurn[-trainingIdx, ]
+testClass <- churn[-trainingIdx, "churn"]
+```
+
+
+
+trainControl:
+```{r TRAIN_CONTROL}
+trCtrl <- trainControl(method            = "repeatedcv",
+                       number            = 3,
+                       repeats           = 3,
+                       p                 = 0.75,
+                       verboseIter       = FALSE,
+                       classProbs        = TRUE,
+                       summaryFunction   = defaultSummary,
+                       selectionFunction = "best")
+```
+
+
+Create ranger model
+```{r RANGER_MODEL, cache=TRUE}
+set.seed(5678)
+rangerM <- train(
+                 x          = trainPred,
+                 y          = trainClass,
+                 method     = "ranger",
+                 preProcess = NULL,
+                 #...,
+                 weights    = NULL,
+                 metric     = "Kappa",
+                 trControl  = trCtrl,
+                 # tuneGrid = NULL,
+                 tuneLength = 3
+                 )
+
+rangerM
+summary(rangerM)
+```
+
+Evaluate ranger model
+```{r EVALUATE_RANGER}
+rangerTestPred <- predict(rangerM, newdata = testPred)
+
+confusionMatrix(rangerTestPred, testClass)
+
+plot(rangerM)
+plot(rangerM, metric = "Kappa")
+plot(rangerM, metric = "Accuracy")
+# plot(rangerM, plotType = "level")
+resampleHist(rangerM)
+varImp(rangerM, useModel = FALSE, top = 20)
+plot(varImp(rangerM, useModel = FALSE, top = 20))
+```
+
+
+Create xgboost model
+```{r XGBOOST_MODEL, cache=TRUE}
+set.seed(5678)
+xgbM <- train(
+              x          = trainPred,
+              y          = trainClass,
+              method     = "xgbLinear",
+              preProcess = NULL,
+              #...,
+              weights    = NULL,
+              metric     = "Kappa",
+              trControl  = trCtrl,
+              # tuneGrid = NULL,
+              tuneLength = 3
+              )
+
+xgbM
+summary(xgbM)
+```
+
+Evaluate xgbM model
+```{r EVALUATE_XGBOOST}
+xgbTestPred <- predict(xgbM, newdata = testPred)
+
+confusionMatrix(xgbTestPred, testClass)
+
+plot(xgbM)
+plot(xgbM, metric = "Kappa")
+plot(xgbM, metric = "Accuracy")
+plot(xgbM, plotType = "level")
+resampleHist(xgbM)
+varImp(xgbM, top = 20)
+plot(varImp(xgbM, top = 20))
+```
+
+Compare models
+```{r COMPARE_RANGER_XGBOOST}
+resamps <- resamples(list(ranger = rangerM, xgboost = xgbM))
+summary(resamps)
+
+xyplot(resamps, what = "BlandAltman")
+dotplot(resamps)
+densityplot(resamps)
+bwplot(resamps)
+splom(resamps)
+parallelplot(resamps)
+
+diffs <- diff(resamps)
+summary(diffs)
+
+# ?xyplot.resamples
+```
+
+## A bunch of models
+
+```{r ALL_MODELS}
+allModels   <- modelLookup()
+classModels <- unique(allModels[allModels$forClass == TRUE,"model"])
+regModels   <- unique(allModels[allModels$forReg   == TRUE,"model"])
+```
+
+```{r TRAIN_CONTROL_BUNCH}
+trCtrl <- trainControl(method            = "cv", # Need more than 1
+                       number            = 10,   # for later resampling
+                       verboseIter       = FALSE,
+                       classProbs        = TRUE)
+```
+
+
+```{r BUNCH_OF_MODELS, cache=TRUE}
+classModels <- c("ada","AdaBag","AdaBoost.M1","avNNet","Boruta","C5.0",
+                 "earth","gbm", "knn","lda","nb","nnet","ranger","svmLinear",
+                 "svmLinear2", "svmPoly", "svmRadial","xgbLinear", "xgbTree")   
+
+modelsList <- list()
+
+for (model in classModels) {
+  
+  print(sprintf("MODEL %s", model))
+  
+  set.seed(5678)
+  
+  modelsList[[model]] <- train(
+                              x          = trainPred,
+                              y          = trainClass,
+                              method     = model,
+                              preProcess = NULL,
+                              #...,
+                              weights    = NULL,
+                              metric     = "Kappa",
+                              trControl  = trCtrl,
+                              # tuneGrid = NULL,
+                              tuneLength = 1        # To make fast this example 
+                              )
+}
+
+```
+
+
+Compare models
+```{r COMPARE_BUNCH}
+resamps <- resamples(modelsList)
+summary(resamps)
+
+xyplot(resamps, what = "BlandAltman")
+dotplot(resamps)
+densityplot(resamps)
+bwplot(resamps)
+splom(resamps)
+parallelplot(resamps)
+
+diffs <- diff(resamps)
+summary(diffs)
+
+sort(resamps, decreasing = TRUE, metric = "Kappa")
+```
+
+
+```{r SOME_CMs}
+confusionMatrix(predict(modelsList[["AdaBag"]], newdata = testPred), testClass)
+
+confusionMatrix(predict(modelsList[["Boruta"]], newdata = testPred), testClass)
+confusionMatrix(predict(modelsList[["ranger"]], newdata = testPred), testClass)
+confusionMatrix(predict(modelsList[["xgbLinear"]], newdata = testPred), testClass)
+confusionMatrix(predict(modelsList[["C5.0"]], newdata = testPred), testClass)
+```
+
+
+
+## ENSEMBLES
+```{r CORR_MODELS}
+# ?modelCor
+
+# modelCor(resamps)
+
+bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
+modelCor(resamples(modelsList[bestModels]))
+```
+
+
+### Stacking 
+Bunchs of models are easy with `caretEnsemble`:
+```{r CARET_LIST, cache = TRUE}
+# Example of Stacking algorithms
+# create submodels
+library(caretEnsemble)
+
+set.seed(5678)
+modelsList <- caretList(x          = trainPred,
+                        y          = trainClass, 
+                        trControl  = trCtrl, 
+                        methodList = classModels)
+```
+**BUT IT CAN CLASSIFY ONLY 2 CATEGORIES**
+
+Compare models
+```{r COMPARE_CARET_LIST}
+resamps <- resamples(modelsList)
+summary(resamps)
+
+xyplot(resamps, what = "BlandAltman")
+dotplot(resamps)
+densityplot(resamps)
+bwplot(resamps)
+splom(resamps)
+parallelplot(resamps)
+
+diffs <- diff(resamps)
+summary(diffs)
+
+sort(resamps, decreasing = TRUE, metric = "Kappa")
+```
+
+
+```{r CORR_MODELS_2}
+bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:10]
+modelCor(resamples(modelsList[bestModels]))
+```
+
+Stop Parallel Processing
+```{r STOP_PARALLEL}
+stopCluster(cl)
+```
