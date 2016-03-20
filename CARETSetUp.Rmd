@@ -13,6 +13,7 @@ opts_chunk$set(message = FALSE, warning = FALSE)
 # Load `caret` and allow Parallel Processing
 ```{r CARET_AND_PARALLEL}
 library(caret)
+library(caretEnsemble)
 
 library(doParallel)
 cl <- makeCluster(max(detectCores()-1,1))
@@ -195,6 +196,8 @@ newChurn <- newChurn[, setdiff(1:ncol(newChurn), cols_no)]
 
 
 ### RANGER & XGBOOST
+Training and test sets
+
 ```{r TRAIN_AND_TEST_SETS}
 set.seed(1234)
 trainingIdx <- createDataPartition(churn$churn, list = FALSE)
@@ -325,7 +328,7 @@ trCtrl <- trainControl(method            = "cv", # Need more than 1
                        classProbs        = TRUE)
 ```
 
-
+Some of these models (e.g., neural nets) should need some preprocessing as scaling and centering.
 ```{r BUNCH_OF_MODELS, cache=TRUE}
 classModels <- c("ada","AdaBag","AdaBoost.M1","avNNet","Boruta","C5.0",
                  "earth","gbm", "knn","lda","nb","nnet","ranger","svmLinear",
@@ -384,20 +387,7 @@ confusionMatrix(predict(modelsList[["xgbLinear"]], newdata = testPred), testClas
 confusionMatrix(predict(modelsList[["C5.0"]], newdata = testPred), testClass)
 ```
 
-
-
-## ENSEMBLES
-```{r CORR_MODELS}
-# ?modelCor
-
-# modelCor(resamps)
-
-bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
-modelCor(resamples(modelsList[bestModels]))
-```
-
-
-### Stacking 
+## Bunch of models with `caretEnsemble`
 Bunchs of models are easy with `caretEnsemble`:
 ```{r CARET_LIST, cache = TRUE}
 # Example of Stacking algorithms
@@ -410,7 +400,7 @@ modelsList <- caretList(x          = trainPred,
                         trControl  = trCtrl, 
                         methodList = classModels)
 ```
-**BUT IT CAN CLASSIFY ONLY 2 CATEGORIES**
+
 
 Compare models
 ```{r COMPARE_CARET_LIST}
@@ -430,11 +420,76 @@ summary(diffs)
 sort(resamps, decreasing = TRUE, metric = "Kappa")
 ```
 
+Don't know, but these results don't look like those above, where i made a bunch of models by hand.
 
-```{r CORR_MODELS_2}
-bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:10]
+Predicting with `caretEnsemble`
+```{r PREDICT_CARET_ENSEMBLE}
+predict(modelsList, newdata = testPred)
+predict(modelsList, newdata = testPred, type = "prob")
+
+p <- as.data.frame(predict(modelsList, newdata=head(testPred)))
+print(p)
+
+p <- as.data.frame(predict(modelsList, newdata=head(testPred), type = "prob"))
+print(p)
+```
+
+## MODELS ENSEMBLES
+
+[KAGGLE ENSEMBLING GUIDE](http://mlwave.com/kaggle-ensembling-guide/)
+
+Should use low correlated models
+```{r CORR_MODELS}
+# ?modelCor
+
+# modelCor(resamps)
+
+bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
 modelCor(resamples(modelsList[bestModels]))
 ```
+
+### Ensembles
+
+#### Voting
+
+#### Averaging
+
+#### Weighted voting and averaging
+
+### Stacking 
+
+```{r CORR_MODELS_2}
+bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
+modelCor(resamples(modelsList[bestModels]))
+```
+
+Correlation doesn't resemble that of bunch of models...
+
+```{r STACK_XGBOOST, cache = TRUE}
+# stack using xgboost
+set.seed(910)
+bestModelsList <- caretList(x          = trainPred,
+                            y          = trainClass, 
+                            trControl  = trCtrl,
+                            methodList = bestModels)
+
+stack.xgb <- caretStack(bestModelsList, 
+                        method    = "xgbLinear", 
+                        metric    = "Kappa", 
+                        trControl = trCtrl)
+print(stack.xgb)
+```
+**BUT IT CAN STACK ONLY 2 CATEGORIES CLASSIFIERS**
+
+(In [A Brief Introduction to caretEnsemble](https://cran.r-project.org/web/packages/caretEnsemble/vignettes/caretEnsemble-intro.html) it's said *"DO NOT use the trainControl object you used to fit the training models to fit the ensemble"*, and we're doing this here)
+
+```{r}
+confusionMatrix(predict(stack.xgb, newdata = testPred), testClass)
+
+varImp(stack.xgb)
+```
+
+I was afraid something like this was going to happen...
 
 Stop Parallel Processing
 ```{r STOP_PARALLEL}
