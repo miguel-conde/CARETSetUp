@@ -434,6 +434,87 @@ p <- as.data.frame(predict(modelsList, newdata=head(testPred), type = "prob"))
 print(p)
 ```
 
+### Understanding `caretList()`
+
+`caretList()` is a flexible function for fitting many different caret models, 
+with the same resampling parameters, to the same dataset. It returns a 
+convenient list of caret objects which can later be passed to caretEnsemble 
+and caretStack. `caretList()` has almost exactly the same arguments as `train()` 
+(from the `caret` package), with the exception that the `trControl` argument 
+comes last. It can handle both the formula interface and the explicit `x`, `y` 
+interface to train. As in caret, the formula interface introduces some 
+overhead and the `x`, `y` interface is preferred.
+ 
+`caretList()` is used to build lists of caret models on the same training data, 
+with the same re-sampling parameters.
+
+If you desire more control over the model fit, use the `caretModelSpec()` function to 
+contruct a list of model specifications for the `tuneList` argument. This 
+argument can be used to fit several different variants of the same model, 
+and can also be used to pass arguments through train down to the component 
+functions (e.g. trace=FALSE for nnet)
+
+```{r CARET_LIST_1}
+trCtrl <- trainControl(method            = "cv", # Need more than 1
+                       number            = 10,   # for later resampling
+                       verboseIter       = FALSE,
+                       classProbs        = TRUE)
+```
+
+Models for the methodList argument
+`methodList` is a simple character vector of methods that will be fit with the 
+default train parameters
+```{r CARET_LIST_2}
+classModels <- c("ranger","xgbLinear") 
+```
+
+Model specifications for the `tuneList` argument, using `caretModelSpec()`
+```{r CARET_LIST_3}
+tuneModels  <- list(
+  rf1 = caretModelSpec(method     = "rf", 
+                       tuneGrid   = data.frame(.mtry=2)
+                       ),
+  rf2 = caretModelSpec(method     = "rf", 
+                       tuneGrid   = data.frame(.mtry=10), 
+                       preProcess ="range"
+                       ),
+  nn  = caretModelSpec(method     = "nnet",
+                       preProcess = c("center", "scale"),
+                       tuneLength = 2, 
+                       trace      = FALSE
+                       )
+)
+```
+
+Here we go with `caretList()`
+We will ask to build 5 models, two of them -"ranger","xgbLinear"- with the 
+`train()` default arguments and three - "rf1", "rf2", "nn" - with specific 
+`train()` arguments
+```{r  CARET_LIST_4, cache = TRUE}
+newModelsList <- caretList(# Arguments to pass to train() as '...' ###
+                           x          = trainPred,
+                           y          = trainClass, 
+                           metric     = "Kappa",
+                           ###########################################
+                           # caretList() specific arguments ##########
+                           trControl  = trCtrl,
+                           methodList = classModels,
+                           tuneList   = tuneModels
+                           ###########################################
+                           )
+```
+
+Predicting
+```{r}
+p <- as.data.frame(predict(newModelsList[],
+                           newdata = head(testPred)))
+print(p)
+p <- as.data.frame(predict(newModelsList[], 
+                           newdata = head(testPred), type = "prob"))
+print(p)
+```
+
+
 ## MODELS ENSEMBLES
 
 [KAGGLE ENSEMBLING GUIDE](http://mlwave.com/kaggle-ensembling-guide/)
