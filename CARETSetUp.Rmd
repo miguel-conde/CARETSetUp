@@ -13,7 +13,6 @@ opts_chunk$set(message = FALSE, warning = FALSE)
 # Load `caret` and allow Parallel Processing
 ```{r CARET_AND_PARALLEL}
 library(caret)
-library(caretEnsemble)
 
 library(doParallel)
 cl <- makeCluster(max(detectCores()-1,1))
@@ -22,8 +21,15 @@ registerDoParallel(cl)
 
 ## MAIN FUNCTIONS FOR SETUP
 
+There are three key issues to manage with `caret`:
+
++ Funtion `train()` - it's the `caret` workhorse function: it sets up a grid of tuning parameters for a number of classification and regression routines, fits each model and calculates a resampling based performance measure.
++ Function `trainControl()` - it controls the computational nuances of the `train()` function
++ `tuneLength` and `tuneGrid` `train()` function arguments - to set up the grid of tuning parameters
+
 ### trainControl()
 
+This function will be passed to `train()` as its `trControl` argument to control its computational nuances.
 ```
 # method	
 The resampling method: boot, boot632, cv, repeatedcv, LOOCV, LGOCV (for
@@ -37,6 +43,18 @@ Either the number of folds or number of resampling iterations
 
 # repeats	
 For repeated k-fold cross-validation only: the number of complete sets of folds to compute
+
+# verboseIter	
+A logical for printing a training log.
+
+# p	
+For leave-group out cross-validation: the training percentage
+
+# savePredictions	
+an indicator of how much of the hold-out predictions for each resample should 
+be saved. Values can be either "all", "final", or "none". A logical value can
+also be used that convert to "all" (for true) or "none" (for false). "final"
+saves the predictions for the optimal tuning parameters.
 
 # search	
 Either "grid" or "random", describing how the tuning parameter grid is
@@ -56,6 +74,11 @@ A list of options to pass to preProcess. The type of pre-processing (e.g. center
 
 # sampling	
 a single character value describing the type of additional sampling that is conducted after resampling (usually to resolve class imbalances). Values are "none", "down", "up", "smote", or "rose". The latter two values require the DMwR and ROSE packages, respectively. This argument can also be a list to facilitate custom sampling and these details can be found on the caret package website for sampling (link below).
+
+# index	
+a list with elements for each resampling iteration. Each list element is a
+vector of integers corresponding to the rows used for training at that
+iteration.
 ```
 
 ```
@@ -65,9 +88,13 @@ trainControl(method            = "boot",
              p                 = 0.75,
              search            = "grid",
              verboseIter       = FALSE,
+             savePredictions   = FALSE,
              classProbs        = FALSE,
              summaryFunction   = defaultSummary,
              selectionFunction = "best",
+             preProcOptions    = list(thresh = 0.95, ICAcomp = 3, k = 5),
+             sampling          = NULL,
+             index             = NULL,
              seeds             = NA,
              allowParallel     = TRUE)
 ```
@@ -145,7 +172,11 @@ train(form, data, ..., weights, subset, na.action, contrasts = NULL)
 ### Model parameters space
 `tuneLength` and `tuneGrid` are two **mutually exclusive** `train()` arguments.
 
-This can be so easy as:
+`tuneLength` must be an integer denoting the amount of granularity in the tuning parameter grid.
+
+`tuneGrid` must be a data frame with possible tuning values. 
+
+This can be achieved so easily as:
 ```{r TUNELENGTH_TUNEGRID}
 data.frame(gamma = (0:4)/4, lambda = 3/4)
 ```
@@ -163,7 +194,7 @@ expand.grid(.interaction.depth = seq(1, 7, by = 2),
 
 ## USEFUL FUNCTIONS FOR SETUP
 ```{r MODEL_LOOKUP}
-head(modelLookup())
+head(modelLookup("xgbLinear"))
 
 ```
 
@@ -194,8 +225,6 @@ newChurn <- newChurn[, setdiff(1:ncol(newChurn), cols_no)]
 
 ```
 
-
-### RANGER & XGBOOST
 Training and test sets
 
 ```{r TRAIN_AND_TEST_SETS}
@@ -209,6 +238,9 @@ testPred <- newChurn[-trainingIdx, ]
 testClass <- churn[-trainingIdx, "churn"]
 ```
 
+
+
+### RANGER & XGBOOST
 
 
 trainControl:
@@ -225,6 +257,7 @@ trCtrl <- trainControl(method            = "repeatedcv",
 
 
 Create ranger model
+(could make as example: `preProcess = c("nzv", "range")`)
 ```{r RANGER_MODEL, cache=TRUE}
 set.seed(5678)
 rangerM <- train(
@@ -375,6 +408,9 @@ diffs <- diff(resamps)
 summary(diffs)
 
 sort(resamps, decreasing = TRUE, metric = "Kappa")
+
+bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
+modelCor(resamples(modelsList[bestModels]))
 ```
 
 
@@ -387,192 +423,3 @@ confusionMatrix(predict(modelsList[["xgbLinear"]], newdata = testPred), testClas
 confusionMatrix(predict(modelsList[["C5.0"]], newdata = testPred), testClass)
 ```
 
-## Bunch of models with `caretEnsemble`
-Bunchs of models are easy with `caretEnsemble`:
-```{r CARET_LIST, cache = TRUE}
-# Example of Stacking algorithms
-# create submodels
-library(caretEnsemble)
-
-set.seed(5678)
-modelsList <- caretList(x          = trainPred,
-                        y          = trainClass, 
-                        trControl  = trCtrl, 
-                        methodList = classModels)
-```
-
-
-Compare models
-```{r COMPARE_CARET_LIST}
-resamps <- resamples(modelsList)
-summary(resamps)
-
-xyplot(resamps, what = "BlandAltman")
-dotplot(resamps)
-densityplot(resamps)
-bwplot(resamps)
-splom(resamps)
-parallelplot(resamps)
-
-diffs <- diff(resamps)
-summary(diffs)
-
-sort(resamps, decreasing = TRUE, metric = "Kappa")
-```
-
-Don't know, but these results don't look like those above, where i made a bunch of models by hand.
-
-Predicting with `caretEnsemble`
-```{r PREDICT_CARET_ENSEMBLE}
-predict(modelsList, newdata = testPred)
-predict(modelsList, newdata = testPred, type = "prob")
-
-p <- as.data.frame(predict(modelsList, newdata=head(testPred)))
-print(p)
-
-p <- as.data.frame(predict(modelsList, newdata=head(testPred), type = "prob"))
-print(p)
-```
-
-### Understanding `caretList()`
-
-`caretList()` is a flexible function for fitting many different caret models, 
-with the same resampling parameters, to the same dataset. It returns a 
-convenient list of caret objects which can later be passed to caretEnsemble 
-and caretStack. `caretList()` has almost exactly the same arguments as `train()` 
-(from the `caret` package), with the exception that the `trControl` argument 
-comes last. It can handle both the formula interface and the explicit `x`, `y` 
-interface to train. As in caret, the formula interface introduces some 
-overhead and the `x`, `y` interface is preferred.
- 
-`caretList()` is used to build lists of caret models on the same training data, 
-with the same re-sampling parameters.
-
-If you desire more control over the model fit, use the `caretModelSpec()` function to 
-contruct a list of model specifications for the `tuneList` argument. This 
-argument can be used to fit several different variants of the same model, 
-and can also be used to pass arguments through train down to the component 
-functions (e.g. trace=FALSE for nnet)
-
-```{r CARET_LIST_1}
-trCtrl <- trainControl(method            = "cv", # Need more than 1
-                       number            = 10,   # for later resampling
-                       verboseIter       = FALSE,
-                       classProbs        = TRUE)
-```
-
-Models for the methodList argument
-`methodList` is a simple character vector of methods that will be fit with the 
-default train parameters
-```{r CARET_LIST_2}
-classModels <- c("ranger","xgbLinear") 
-```
-
-Model specifications for the `tuneList` argument, using `caretModelSpec()`
-```{r CARET_LIST_3}
-tuneModels  <- list(
-  rf1 = caretModelSpec(method     = "rf", 
-                       tuneGrid   = data.frame(.mtry=2)
-                       ),
-  rf2 = caretModelSpec(method     = "rf", 
-                       tuneGrid   = data.frame(.mtry=10), 
-                       preProcess ="range"
-                       ),
-  nn  = caretModelSpec(method     = "nnet",
-                       preProcess = c("center", "scale"),
-                       tuneLength = 2, 
-                       trace      = FALSE
-                       )
-)
-```
-
-Here we go with `caretList()`
-We will ask to build 5 models, two of them -"ranger","xgbLinear"- with the 
-`train()` default arguments and three - "rf1", "rf2", "nn" - with specific 
-`train()` arguments
-```{r  CARET_LIST_4, cache = TRUE}
-newModelsList <- caretList(# Arguments to pass to train() as '...' ###
-                           x          = trainPred,
-                           y          = trainClass, 
-                           metric     = "Kappa",
-                           ###########################################
-                           # caretList() specific arguments ##########
-                           trControl  = trCtrl,
-                           methodList = classModels,
-                           tuneList   = tuneModels
-                           ###########################################
-                           )
-```
-
-Predicting
-```{r}
-p <- as.data.frame(predict(newModelsList[],
-                           newdata = head(testPred)))
-print(p)
-p <- as.data.frame(predict(newModelsList[], 
-                           newdata = head(testPred), type = "prob"))
-print(p)
-```
-
-
-## MODELS ENSEMBLES
-
-[KAGGLE ENSEMBLING GUIDE](http://mlwave.com/kaggle-ensembling-guide/)
-
-Should use low correlated models
-```{r CORR_MODELS}
-# ?modelCor
-
-# modelCor(resamps)
-
-bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
-modelCor(resamples(modelsList[bestModels]))
-```
-
-### Ensembles
-
-#### Voting
-
-#### Averaging
-
-#### Weighted voting and averaging
-
-### Stacking 
-
-```{r CORR_MODELS_2}
-bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
-modelCor(resamples(modelsList[bestModels]))
-```
-
-Correlation doesn't resemble that of bunch of models...
-
-```{r STACK_XGBOOST, cache = TRUE}
-# stack using xgboost
-set.seed(910)
-bestModelsList <- caretList(x          = trainPred,
-                            y          = trainClass, 
-                            trControl  = trCtrl,
-                            methodList = bestModels)
-
-stack.xgb <- caretStack(bestModelsList, 
-                        method    = "xgbLinear", 
-                        metric    = "Kappa", 
-                        trControl = trCtrl)
-print(stack.xgb)
-```
-**BUT IT CAN STACK ONLY 2 CATEGORIES CLASSIFIERS**
-
-(In [A Brief Introduction to caretEnsemble](https://cran.r-project.org/web/packages/caretEnsemble/vignettes/caretEnsemble-intro.html) it's said *"DO NOT use the trainControl object you used to fit the training models to fit the ensemble"*, and we're doing this here)
-
-```{r}
-confusionMatrix(predict(stack.xgb, newdata = testPred), testClass)
-
-varImp(stack.xgb)
-```
-
-I was afraid something like this was going to happen...
-
-Stop Parallel Processing
-```{r STOP_PARALLEL}
-stopCluster(cl)
-```
