@@ -10,7 +10,7 @@ library(knitr)
 opts_chunk$set(message = FALSE, warning = FALSE)
 ```
 
-# Load `caret` and allow Parallel Processing
+# Load `caretEnsemble` and allow Parallel Processing
 ```{r CARETENSEMBLE_AND_PARALLEL}
 library(caretEnsemble)
 
@@ -31,6 +31,7 @@ str(churn)
 
 Creating dummy vars (for xgboost)
 ```{r DUMMY_VARS}
+library(caret)
 dummies <- dummyVars(churn ~ ., data = churn)
 newChurn <- as.data.frame(predict(dummies, newdata = churn))
 
@@ -58,6 +59,15 @@ Bunchs of models are easy with `caretEnsemble`:
 # Example of Stacking algorithms
 # create submodels
 library(caretEnsemble)
+
+classModels <- c("ada","AdaBag","AdaBoost.M1","avNNet","Boruta","C5.0",
+                 "earth","gbm", "knn","lda","nb","nnet","ranger","svmLinear",
+                 "svmLinear2", "svmPoly", "svmRadial","xgbLinear", "xgbTree")
+
+trCtrl <- trainControl(method            = "cv", # Need more than 1
+                       number            = 10,   # for later resampling
+                       verboseIter       = FALSE,
+                       classProbs        = TRUE)
 
 set.seed(5678)
 modelsList <- caretList(x          = trainPred,
@@ -122,7 +132,7 @@ set it for automatically, but it“s generally a good idea to set it yourself:
 ```{r CARET_LIST_1}
 trCtrl <- trainControl(method            = "cv", # Need more than 1
                        number            = 10,   # for later resampling
-                       verboseIter       = TRUE,
+                       verboseIter       = FALSE,
                        savePredictions   = "final",
                        classProbs        = TRUE,
                        index             = createResample(trainClass, 10))
@@ -192,52 +202,108 @@ Should use low correlated models
 
 # modelCor(resamps)
 
-bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
-modelCor(resamples(modelsList[bestModels]))
-```
-
-### Ensembles
-
-#### Voting
-
-#### Averaging
-
-#### Weighted voting and averaging
-
-### Stacking 
-
-```{r CORR_MODELS_2}
-bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
+bestModels <- sort(resamples(modelsList), 
+                   decreasing = TRUE, 
+                   metric = "Kappa")[1:5]
 modelCor(resamples(modelsList[bestModels]))
 ```
 
 Correlation doesn't resemble that of bunch of models...
 
-```{r STACK_XGBOOST, cache = TRUE}
-# stack using xgboost
-set.seed(910)
-bestModelsList <- caretList(x          = trainPred,
-                            y          = trainClass, 
-                            trControl  = trCtrl,
-                            methodList = bestModels)
+### Ensembles
 
-stack.xgb <- caretStack(bestModelsList, 
-                        method    = "xgbLinear", 
-                        metric    = "Kappa", 
-                        trControl = trCtrl)
-print(stack.xgb)
+#### Voting
+TBD
+
+#### Averaging
+TBD
+
+#### Weighted voting and averaging
+TBD
+
+### Stacking 
+
+```{r STACK_GLM, cache = TRUE}
+# stack using gbm
+set.seed(910)
+
+bestModelsList <- modelsList[bestModels]
+class(bestModelsList) <- class(modelsList)
+
+stack.glm <- caretStack(
+  bestModelsList, 
+  method    = "glm", 
+  metric    = "Kappa", 
+  trControl = trainControl(method          = "cv",
+                           number          =  10,
+                           savePredictions = "final",
+                           classProbs      = TRUE,
+                           index           = createResample(trainClass, 10),
+                           summaryFunction = twoClassSummary)
+  )
+
+save(stack.glm,      file = "./DATA/stack.glm.CE.Rda")
+save(modelsList,     file = "./DATA/modelsList.CE.Rda")
+save(bestModelsList, file = "./DATA/bestModelsList.CE.Rda")
+save(newModelsList,  file = "./DATA/newModelsList.CE.Rda")
+
+print(stack.glm)
+summary(stack.glm)
 ```
 **BUT IT CAN STACK ONLY 2 CATEGORIES CLASSIFIERS**
 
-(In [A Brief Introduction to caretEnsemble](https://cran.r-project.org/web/packages/caretEnsemble/vignettes/caretEnsemble-intro.html) it's said *"DO NOT use the trainControl object you used to fit the training models to fit the ensemble"*, and we're doing this here)
+(In [A Brief Introduction to caretEnsemble](https://cran.r-project.org/web/packages/caretEnsemble/vignettes/caretEnsemble-intro.html) it's said *"DO NOT use the trainControl object you used to fit the training models to fit the ensemble"*)
 
 ```{r}
-confusionMatrix(predict(stack.xgb, newdata = testPred), testClass)
+
+confusionMatrix(predict(stack.glm, newdata = testPred), testClass)
 
 # varImp(stack.xgb)
+
+library("caTools")
+model_preds <- lapply(bestModelsList, 
+                     predict, 
+                     newdata = testPred, 
+                     type    = "prob")
+model_preds <- lapply(model_preds, function(x) x[,"yes"])
+model_preds <- data.frame(model_preds)
+ens_preds   <- predict(stack.glm, newdata = testPred, type = "prob")
+model_preds$ensemble <- ens_preds
+head(model_preds)
+# CF <- coef(stack.xgb$ens_model$finalModel)[-1]
+caTools::colAUC(model_preds, testClass)
+# CF/sum(CF)
+
+```
+
+```{r}
+
+model_preds <- lapply(bestModelsList, 
+                     predict, 
+                     newdata = testPred)
+# model_preds <- lapply(model_preds, function(x) x[,"yes"])
+model_preds <- data.frame(model_preds)
+ens_preds   <- predict(stack.glm, newdata = testPred)
+model_preds$ensemble <- ens_preds
+
+head(model_preds)
+
 ```
 
 I was afraid something like this was going to happen...
+
+Predicting
+```{r}
+p <- as.data.frame(predict(stack.glm, newdata = head(testPred)))
+print(p)
+p <- as.data.frame(predict(stack.glm, newdata = head(testPred), type = "prob"))
+print(p)
+```
+
+```{r}
+# plot(stack.glm)
+# dotplot(stack.glm)
+```
 
 Stop Parallel Processing
 ```{r STOP_PARALLEL}
