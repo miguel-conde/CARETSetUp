@@ -10,7 +10,7 @@ library(knitr)
 opts_chunk$set(message = FALSE, warning = FALSE)
 ```
 
-# Load `caretEnsemble` and allow Parallel Processing
+## Load `caretEnsemble` and allow Parallel Processing
 ```{r CARETENSEMBLE_AND_PARALLEL}
 library(caretEnsemble)
 
@@ -19,7 +19,7 @@ cl <- makeCluster(max(detectCores()-1,1))
 registerDoParallel(cl)
 ```
 
-Loading data
+## Load data and make trainig & test sets
 
 ```{r LOAD_DATA}
 library(C50)
@@ -221,10 +221,72 @@ TBD
 #### Weighted voting and averaging
 TBD
 
+#### Ensembles with `caretEnsemble`
+
+1) Build an ensemble with the best low correlated models:
+```{r ENSEMBLE_1, cache = 1}
+set.seed(910)
+
+bestModelsList <- modelsList[bestModels]
+class(bestModelsList) <- class(modelsList)
+
+greedy_ensemble <- caretEnsemble(
+  bestModelsList, 
+  metric    = "ROC",
+  trControl = trainControl(method          = "cv",
+                           number          =  10,
+                           savePredictions = "final",
+                           classProbs      = TRUE,
+                           index           = createResample(trainClass, 10),
+                           summaryFunction = twoClassSummary)
+  )
+
+save(greedy_ensemble,      file = "./DATA/greedy_ensemble.CE.Rda")
+
+print(greedy_ensemble)
+# summary(greedy_ensemble) # Don't know why it fails
+summary(greedy_ensemble$ens_model$finalModel)
+```
+
+2) Measure ensemble performance and compare with each model in it
+```{r ENSEMBLE_2}
+library("caTools")
+model_preds <- lapply(bestModelsList, predict, newdata = testPred, type="prob")
+model_preds <- lapply(model_preds, function(x) x[,"yes"])
+model_preds <- data.frame(model_preds)
+ens_preds   <- predict(greedy_ensemble, newdata = testPred, type="prob")
+model_preds$ensemble <- ens_preds
+head(model_preds)
+caTools::colAUC(model_preds, testClass)
+
+# head(varImp(greedy_ensemble, model = FALSE)) # Doesn't pass model = FALSE to ranger
+```
+
+3) Test the predicting ability of the ensemble
+```{r ENSEMBLE_3}
+
+model_predsB <- lapply(bestModelsList, 
+                     predict, 
+                     newdata = testPred)
+# model_preds <- lapply(model_preds, function(x) x[,"yes"])
+model_predsB <- data.frame(model_predsB)
+ens_preds   <- predict(greedy_ensemble, newdata = testPred)
+model_predsB$ensemble <- ens_preds
+
+head(model_predsB)
+
+```
+
+Ensemble classes are upside down...
+
 ### Stacking 
 
+#### Stacks with `caretEnsemble`
+
+##### GLM stack
+1) Build a stack with the best low correlated models:
 ```{r STACK_GLM, cache = TRUE}
-# stack using gbm
+# stack using glm
 set.seed(910)
 
 bestModelsList <- modelsList[bestModels]
@@ -254,6 +316,7 @@ summary(stack.glm)
 
 (In [A Brief Introduction to caretEnsemble](https://cran.r-project.org/web/packages/caretEnsemble/vignettes/caretEnsemble-intro.html) it's said *"DO NOT use the trainControl object you used to fit the training models to fit the ensemble"*)
 
+2) Measure ensemble performance and compare with each model in it
 ```{r}
 
 confusionMatrix(predict(stack.glm, newdata = testPred), testClass)
@@ -261,36 +324,42 @@ confusionMatrix(predict(stack.glm, newdata = testPred), testClass)
 # varImp(stack.xgb)
 
 library("caTools")
-model_preds <- lapply(bestModelsList, 
-                     predict, 
-                     newdata = testPred, 
-                     type    = "prob")
-model_preds <- lapply(model_preds, function(x) x[,"yes"])
-model_preds <- data.frame(model_preds)
-ens_preds   <- predict(stack.glm, newdata = testPred, type = "prob")
-model_preds$ensemble <- ens_preds
-head(model_preds)
+# model_preds <- lapply(bestModelsList, 
+#                      predict, 
+#                      newdata = testPred, 
+#                      type    = "prob")
+# model_preds <- lapply(model_preds, function(x) x[,"yes"])
+# model_preds <- data.frame(model_preds)
+# ens_preds   <- predict(stack.glm, newdata = testPred, type = "prob")
+# model_preds$ensemble <- ens_preds
+# head(model_preds)
 # CF <- coef(stack.xgb$ens_model$finalModel)[-1]
-caTools::colAUC(model_preds, testClass)
+# caTools::colAUC(model_preds, testClass)
 # CF/sum(CF)
 
+model_preds2 <- model_preds
+model_preds2$ensemble <- predict(stack.glm, newdata = testPred, type="prob")
+CF <- coef(stack.glm$ens_model$finalModel)[-1]
+colAUC(model_preds2, testClass)
+
+CF/sum(CF)
+
 ```
 
+3) Test the predicting ability of the stack
 ```{r}
 
-model_preds <- lapply(bestModelsList, 
-                     predict, 
-                     newdata = testPred)
+model_predsB2 <- model_predsB
 # model_preds <- lapply(model_preds, function(x) x[,"yes"])
-model_preds <- data.frame(model_preds)
+model_predsB2 <- data.frame(model_predsB2)
 ens_preds   <- predict(stack.glm, newdata = testPred)
-model_preds$ensemble <- ens_preds
+model_predsB2$ensemble <- ens_preds
 
-head(model_preds)
+head(model_predsB2)
 
 ```
 
-I was afraid something like this was going to happen...
+I was afraid something like this was going to happen... Stack classes are also upside down...
 
 Predicting
 ```{r}
@@ -304,6 +373,74 @@ print(p)
 # plot(stack.glm)
 # dotplot(stack.glm)
 ```
+
+##### GBM stack
+1) Build a stack with the best low correlated models:
+```{r STACK_GBM, cache = TRUE}
+# stack using gbm
+set.seed(910)
+
+bestModelsList <- modelsList[bestModels]
+class(bestModelsList) <- class(modelsList)
+
+stack.gbm <- caretStack(
+  bestModelsList, 
+  method    = "gbm", 
+  metric    = "Kappa", 
+  trControl = trainControl(method          = "cv",
+                           number          =  10,
+                           savePredictions = "final",
+                           classProbs      = TRUE,
+                           index           = createResample(trainClass, 10),
+                           summaryFunction = twoClassSummary)
+  )
+
+save(stack.gbm,      file = "./DATA/stack.gbm.CE.Rda")
+
+print(stack.gbm)
+summary(stack.gbm)
+```
+
+
+2) Measure ensemble performance and compare with each model in it
+```{r}
+
+confusionMatrix(predict(stack.gbm, newdata = testPred), testClass)
+
+# varImp(stack.xgb)
+
+library("caTools")
+
+model_preds3 <- model_preds
+model_preds3$ensemble <- predict(stack.gbm, newdata = testPred, type="prob")
+
+colAUC(model_preds3, testClass)
+
+```
+
+3) Test the predicting ability of the stack
+```{r}
+
+model_predsB3 <- model_predsB
+# model_preds <- lapply(model_preds, function(x) x[,"yes"])
+model_predsB3 <- data.frame(model_predsB3)
+ens_preds   <- predict(stack.gbm, newdata = testPred)
+model_predsB3$ensemble <- ens_preds
+
+head(model_predsB3)
+
+```
+
+I was afraid something like this was going to happen... Stack classes are also upside down...
+
+Predicting
+```{r}
+p <- as.data.frame(predict(stack.gbm, newdata = head(testPred)))
+print(p)
+p <- as.data.frame(predict(stack.gbm, newdata = head(testPred), type = "prob"))
+print(p)
+```
+
 
 Stop Parallel Processing
 ```{r STOP_PARALLEL}
