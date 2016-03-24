@@ -19,12 +19,22 @@ cl <- makeCluster(max(detectCores()-1,1))
 registerDoParallel(cl)
 ```
 
+```{r}
+mySeed <- 8910
+```
+
+
 ## Load data and make trainig & test sets
 
 ```{r LOAD_DATA}
 library(C50)
 data(churn)
 churn <- rbind(churnTrain, churnTest)
+# We'll have problems predicting if factors are not alphabetically ordered. 
+# (Predictions will be made upside down)
+# This is a caretEnsemble package problem at least till version 2.0
+# To re-order alphabetically:
+churn$churn <- factor(as.character(churn$churn)) 
 
 str(churn)
 ```
@@ -69,11 +79,14 @@ trCtrl <- trainControl(method            = "cv", # Need more than 1
                        verboseIter       = FALSE,
                        classProbs        = TRUE)
 
-set.seed(5678)
+set.seed(mySeed)
 modelsList <- caretList(x          = trainPred,
                         y          = trainClass, 
                         trControl  = trCtrl, 
                         methodList = classModels)
+
+save(modelsList,     file = "./DATA/modelsList.CE.Rda")
+
 ```
 
 
@@ -124,10 +137,10 @@ If you desire more control over the model fit, use the `caretModelSpec()` functi
 contruct a list of model specifications for the `tuneList` argument. This 
 argument can be used to fit several different variants of the same model, 
 and can also be used to pass arguments through train down to the component 
-functions (e.g. trace=FALSE for nnet)
+functions (e.g. `trace = FALSE` for `nnet`)
 
 Notice that we are explicitly setting the resampling index to being used in 
-`trainControl`. If you do not set this index manually, caretList will attempt to 
+`trainControl`. If you do not set this index manually, `caretList()` will attempt to 
 set it for automatically, but it“s generally a good idea to set it yourself:
 ```{r CARET_LIST_1}
 trCtrl <- trainControl(method            = "cv", # Need more than 1
@@ -135,7 +148,7 @@ trCtrl <- trainControl(method            = "cv", # Need more than 1
                        verboseIter       = FALSE,
                        savePredictions   = "final",
                        classProbs        = TRUE,
-                       index             = createResample(trainClass, 10))
+                       index             = createFolds(trainClass, 10))
 ```
 
 Models for the methodList argument.
@@ -168,6 +181,8 @@ We will ask to build 5 models, two of them -"ranger","xgbLinear"- with the
 `train()` default arguments and three - "rf1", "rf2", "nn" - with specific 
 `train()` arguments
 ```{r  CARET_LIST_4, cache = TRUE}
+set.seed(mySeed)
+
 newModelsList <- caretList(# Arguments to pass to train() as '...' ###
                            x          = trainPred,
                            y          = trainClass, 
@@ -179,6 +194,8 @@ newModelsList <- caretList(# Arguments to pass to train() as '...' ###
                            tuneList   = tuneModels
                            ###########################################
                            )
+
+save(newModelsList,  file = "./DATA/newModelsList.CE.Rda")
 ```
 
 Predicting
@@ -225,7 +242,7 @@ TBD
 
 1) Build an ensemble with the best low correlated models:
 ```{r ENSEMBLE_1, cache = 1}
-set.seed(910)
+set.seed(mySeed)
 
 bestModelsList <- modelsList[bestModels]
 class(bestModelsList) <- class(modelsList)
@@ -237,7 +254,7 @@ greedy_ensemble <- caretEnsemble(
                            number          =  10,
                            savePredictions = "final",
                            classProbs      = TRUE,
-                           index           = createResample(trainClass, 10),
+                           index           = createFolds(trainClass, 10),
                            summaryFunction = twoClassSummary)
   )
 
@@ -245,7 +262,7 @@ save(greedy_ensemble,      file = "./DATA/greedy_ensemble.CE.Rda")
 
 print(greedy_ensemble)
 # summary(greedy_ensemble) # Don't know why it fails
-summary(greedy_ensemble$ens_model$finalModel)
+summary(greedy_ensemble$ens_model$finalModel) # This works
 ```
 
 2) Measure ensemble performance and compare with each model in it
@@ -287,7 +304,7 @@ Ensemble classes are upside down...
 1) Build a stack with the best low correlated models:
 ```{r STACK_GLM, cache = TRUE}
 # stack using glm
-set.seed(910)
+set.seed(mySeed)
 
 bestModelsList <- modelsList[bestModels]
 class(bestModelsList) <- class(modelsList)
@@ -300,14 +317,11 @@ stack.glm <- caretStack(
                            number          =  10,
                            savePredictions = "final",
                            classProbs      = TRUE,
-                           index           = createResample(trainClass, 10),
+                           index           = createFolds(trainClass, 10),
                            summaryFunction = twoClassSummary)
   )
 
 save(stack.glm,      file = "./DATA/stack.glm.CE.Rda")
-save(modelsList,     file = "./DATA/modelsList.CE.Rda")
-save(bestModelsList, file = "./DATA/bestModelsList.CE.Rda")
-save(newModelsList,  file = "./DATA/newModelsList.CE.Rda")
 
 print(stack.glm)
 summary(stack.glm)
@@ -378,7 +392,7 @@ print(p)
 1) Build a stack with the best low correlated models:
 ```{r STACK_GBM, cache = TRUE}
 # stack using gbm
-set.seed(910)
+set.seed(mySeed)
 
 bestModelsList <- modelsList[bestModels]
 class(bestModelsList) <- class(modelsList)
@@ -391,7 +405,7 @@ stack.gbm <- caretStack(
                            number          =  10,
                            savePredictions = "final",
                            classProbs      = TRUE,
-                           index           = createResample(trainClass, 10),
+                           index           = createFolds(trainClass, 10),
                            summaryFunction = twoClassSummary)
   )
 
