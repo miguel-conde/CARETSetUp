@@ -2,7 +2,11 @@
 title: "caretEnsemble Setup"
 author: "Miguel Conde"
 date: "21 de marzo de 2016"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_depth: 5
+    toc_float: true
 ---
 
 ```{r me, echo = FALSE, warning=FALSE}
@@ -24,7 +28,7 @@ mySeed <- 8910
 ```
 
 
-## Load data and make trainig & test sets
+## Load data and make training & test sets
 
 ```{r LOAD_DATA}
 library(C50)
@@ -42,10 +46,10 @@ str(churn)
 Creating dummy vars (for xgboost)
 ```{r DUMMY_VARS}
 library(caret)
-dummies <- dummyVars(churn ~ ., data = churn)
+dummies  <- dummyVars(churn ~ ., data = churn)
 newChurn <- as.data.frame(predict(dummies, newdata = churn))
 
-cols_no <- grep(".*no", names(newChurn))
+cols_no  <- grep(".*no", names(newChurn))
 newChurn <- newChurn[, setdiff(1:ncol(newChurn), cols_no)]
 
 ```
@@ -56,15 +60,15 @@ Training and test sets
 set.seed(1234)
 trainingIdx <- createDataPartition(churn$churn, list = FALSE)
 
-trainPred <- newChurn[trainingIdx, ]
+trainPred  <- newChurn[trainingIdx, ]
 trainClass <- churn[trainingIdx, "churn"]
 
-testPred <- newChurn[-trainingIdx, ]
+testPred  <- newChurn[-trainingIdx, ]
 testClass <- churn[-trainingIdx, "churn"]
 ```
 
-## Bunch of models with `caretEnsemble`
-Bunchs of models are easy with `caretEnsemble`:
+## Bunch of models with `caretEnsemble::caretList()`
+Bunchs of models are easy with `caretEnsemble`. A very simple example:
 ```{r CARET_LIST, cache = TRUE}
 # Example of Stacking algorithms
 # create submodels
@@ -238,9 +242,9 @@ TBD
 #### Weighted voting and averaging
 TBD
 
-#### Ensembles with `caretEnsemble`
+#### Ensembles with `caretEnsemble::caretEnsemble()`
 
-1) Build an ensemble with the best low correlated models:
+1) Build an ensemble with the best low correlated models (won't check this, just testing caretEnsemble functions):
 ```{r ENSEMBLE_1, cache = 1}
 set.seed(mySeed)
 
@@ -298,7 +302,7 @@ Ensemble classes are upside down...
 
 ### Stacking 
 
-#### Stacks with `caretEnsemble`
+#### Stacks with `caretEnsemble::caretStack()`
 
 ##### GLM stack
 1) Build a stack with the best low correlated models:
@@ -330,7 +334,7 @@ summary(stack.glm)
 
 (In [A Brief Introduction to caretEnsemble](https://cran.r-project.org/web/packages/caretEnsemble/vignettes/caretEnsemble-intro.html) it's said *"DO NOT use the trainControl object you used to fit the training models to fit the ensemble"*)
 
-2) Measure ensemble performance and compare with each model in it
+2) Measure stack performance and compare with each model in it
 ```{r}
 
 confusionMatrix(predict(stack.glm, newdata = testPred), testClass)
@@ -416,7 +420,7 @@ summary(stack.gbm)
 ```
 
 
-2) Measure ensemble performance and compare with each model in it
+2) Measure stack performance and compare with each model in it
 ```{r}
 
 confusionMatrix(predict(stack.gbm, newdata = testPred), testClass)

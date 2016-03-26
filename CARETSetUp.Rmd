@@ -2,7 +2,11 @@
 title: "CARET General Setup"
 author: "Miguel Conde"
 date: "18 de marzo de 2016"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_depth: 5
+    toc_float: true
 ---
 
 ```{r me, echo = FALSE, warning=FALSE}
@@ -10,7 +14,7 @@ library(knitr)
 opts_chunk$set(message = FALSE, warning = FALSE)
 ```
 
-# Load `caret` and allow Parallel Processing
+## Load `caret` and allow Parallel Processing
 ```{r CARET_AND_PARALLEL}
 library(caret)
 
@@ -169,7 +173,8 @@ train(x, y,
 train(form, data, ..., weights, subset, na.action, contrasts = NULL)
 ```
 
-### Model parameters space
+### Model parameters space: `tuneLength` and `tuneGrid` arguments
+
 `tuneLength` and `tuneGrid` are two **mutually exclusive** `train()` arguments.
 
 `tuneLength` must be an integer denoting the amount of granularity in the tuning parameter grid.
@@ -193,11 +198,13 @@ expand.grid(.interaction.depth = seq(1, 7, by = 2),
 ```
 
 ## USEFUL FUNCTIONS FOR SETUP
+### `modelLookup`
 ```{r MODEL_LOOKUP}
 head(modelLookup("xgbLinear"))
 
 ```
 
+### `getModelInfo`
 ```{r GET_MODEL_INFO}
 getModelInfo("rf", regex = FALSE)
 ```
@@ -205,7 +212,9 @@ getModelInfo("rf", regex = FALSE)
 
 ## EXAMPLES
 
-Loading data
+### Preparing Data
+
+#### Loading data
 
 ```{r LOAD_DATA}
 library(C50)
@@ -215,26 +224,26 @@ churn <- rbind(churnTrain, churnTest)
 str(churn)
 ```
 
-Creating dummy vars (for xgboost)
+#### Creating dummy vars (for xgboost)
 ```{r DUMMY_VARS}
-dummies <- dummyVars(churn ~ ., data = churn)
+dummies  <- dummyVars(churn ~ ., data = churn)
 newChurn <- as.data.frame(predict(dummies, newdata = churn))
 
-cols_no <- grep(".*no", names(newChurn))
+cols_no  <- grep(".*no", names(newChurn))
 newChurn <- newChurn[, setdiff(1:ncol(newChurn), cols_no)]
 
 ```
 
-Training and test sets
+#### Training and test sets
 
 ```{r TRAIN_AND_TEST_SETS}
 set.seed(1234)
 trainingIdx <- createDataPartition(churn$churn, list = FALSE)
 
-trainPred <- newChurn[trainingIdx, ]
+trainPred  <- newChurn[trainingIdx, ]
 trainClass <- churn[trainingIdx, "churn"]
 
-testPred <- newChurn[-trainingIdx, ]
+testPred  <- newChurn[-trainingIdx, ]
 testClass <- churn[-trainingIdx, "churn"]
 ```
 
@@ -242,7 +251,7 @@ testClass <- churn[-trainingIdx, "churn"]
 
 ### RANGER & XGBOOST
 
-
+#### Shared `trainControl()`
 trainControl:
 ```{r TRAIN_CONTROL}
 trCtrl <- trainControl(method            = "repeatedcv",
@@ -255,8 +264,8 @@ trCtrl <- trainControl(method            = "repeatedcv",
                        selectionFunction = "best")
 ```
 
-
-Create ranger model
+#### `ranger` model
+##### Create ranger model with `train()` and `tuneLength`
 (could make as example: `preProcess = c("nzv", "range")`)
 ```{r RANGER_MODEL, cache=TRUE}
 set.seed(5678)
@@ -277,14 +286,14 @@ rangerM
 summary(rangerM)
 ```
 
-Evaluate ranger model
+##### Evaluate ranger model
 ```{r EVALUATE_RANGER}
 rangerTestPred <- predict(rangerM, newdata = testPred)
 
 confusionMatrix(rangerTestPred, testClass)
 
 plot(rangerM)
-plot(rangerM, metric = "Kappa")
+# plot(rangerM, metric = "Kappa")
 plot(rangerM, metric = "Accuracy")
 # plot(rangerM, plotType = "level")
 resampleHist(rangerM)
@@ -292,8 +301,8 @@ varImp(rangerM, useModel = FALSE, top = 20)
 plot(varImp(rangerM, useModel = FALSE, top = 20))
 ```
 
-
-Create xgboost model
+#### `xgboost` model
+##### Create xgboost model with `train()` and `tuneLength`
 ```{r XGBOOST_MODEL, cache=TRUE}
 set.seed(5678)
 xgbM <- train(
@@ -313,14 +322,14 @@ xgbM
 summary(xgbM)
 ```
 
-Evaluate xgbM model
+##### Evaluate xgbM model
 ```{r EVALUATE_XGBOOST}
 xgbTestPred <- predict(xgbM, newdata = testPred)
 
 confusionMatrix(xgbTestPred, testClass)
 
 plot(xgbM)
-plot(xgbM, metric = "Kappa")
+# plot(xgbM, metric = "Kappa")
 plot(xgbM, metric = "Accuracy")
 plot(xgbM, plotType = "level")
 resampleHist(xgbM)
@@ -328,7 +337,7 @@ varImp(xgbM, top = 20)
 plot(varImp(xgbM, top = 20))
 ```
 
-Compare models
+#### Compare models
 ```{r COMPARE_RANGER_XGBOOST}
 resamps <- resamples(list(ranger = rangerM, xgboost = xgbM))
 summary(resamps)
@@ -346,7 +355,7 @@ summary(diffs)
 # ?xyplot.resamples
 ```
 
-## A bunch of models
+### A bunch of models
 
 ```{r ALL_MODELS}
 allModels   <- modelLookup()
@@ -397,7 +406,7 @@ Compare models
 resamps <- resamples(modelsList)
 summary(resamps)
 
-xyplot(resamps, what = "BlandAltman")
+# xyplot(resamps, what = "BlandAltman")
 dotplot(resamps)
 densityplot(resamps)
 bwplot(resamps)
@@ -413,7 +422,7 @@ bestModels <- sort(resamps, decreasing = TRUE, metric = "Kappa")[1:5]
 modelCor(resamples(modelsList[bestModels]))
 ```
 
-
+Some confussion matrices:
 ```{r SOME_CMs}
 confusionMatrix(predict(modelsList[["AdaBag"]], newdata = testPred), testClass)
 
